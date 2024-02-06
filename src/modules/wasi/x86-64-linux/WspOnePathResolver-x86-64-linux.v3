@@ -101,6 +101,7 @@ def normalize_path0(path: Array<byte>, pathLen: i32) -> (Array<byte>, i32, wasi_
 			normalized.putc('.');
 		}
 	}
+        normalized.putc(0);
 	var len = normalized.length;
 	return (normalized.toString(), len, wasi_errno.SUCCESS);
 }

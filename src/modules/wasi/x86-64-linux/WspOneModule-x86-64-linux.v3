@@ -8,7 +8,10 @@ def SYS_openat = 257;
 def SYS_clock_get_time = 228;
 def SYS_clock_get_res = 229;
 def SYS_getrandom = 318;
+def SYS_mkdir = 83;
+def SYS_lstat = 6;
 
+def MKDIR_MODE = 0x1FF;
 // openat flags
 def O_CLOEXEC = 0x80000;
 def O_PATH = 0x200000;
@@ -19,6 +22,30 @@ def timespec = Array<long>.new(2);
 
 // A special value, which tells the fd of the current working directory used in openat
 def AT_FDCWD = -100;
+
+def WASI_FILESTAT_TIME_MASK = 0x0F;
+def WASI_FILESTAT_SET_ATIM = 0x01;
+def WASI_FILESTAT_SET_ATIM_NOW = 1 << 1;
+def WASI_FILESTAT_SET_MTIM = 1 << 2;
+def WASI_FILESTAT_SET_MTIM_NOW = 1 << 3;
+
+layout OldKernelStat {
+		+0  st_dev:   u16;   // 2 bytes for unsigned short
+		+2  st_ino:   u16;   // 2 bytes for unsigned short, offset by 2 bytes
+		+4  st_mode:  u16;   // 2 bytes for unsigned short, offset by 4 bytes
+		+6  st_nlink: u16;   // 2 bytes for unsigned short, offset by 6 bytes
+		+8  st_uid:   u16;   // 2 bytes for unsigned short, offset by 8 bytes
+		+10 st_gid:   u16;   // 2 bytes for unsigned short, offset by 10 bytes
+		+12 st_rdev:  u16;   // 2 bytes for unsigned short, offset by 12 bytes
+		+14 st_size:  u64;   // 8 bytes for unsigned long, offset by 14 bytes
+		+22 st_atime: u64;   // 8 bytes for unsigned long, offset by 22 bytes
+		+30 st_mtime: u64;   // 8 bytes for unsigned long, offset by 30 bytes
+		+38 st_ctime: u64;   // 8 bytes for unsigned long, offset by 38 bytes
+		=46;                 // Total size = 46 bytes
+	}
+
+	def KERNEL_STAT_SIZE : u32= 46;
+
 
 // Platform-specific implementation of "wasi_snapshot_preview1" module.
 class X86_64Linux_WspOneModule extends WspOneModule {
@@ -40,6 +67,98 @@ class X86_64Linux_WspOneModule extends WspOneModule {
 			fdmap.set(wasi_fd, WasiFd.new(int.view(fd), wasi_filetype.DIRECTORY, true, dir));
 		}
 	}
+	
+	
+  	def path_create_directory(args : Range<Value>)->HostResult {
+    		var fd = Values.v_i(args[0]), ptr = args[1];
+		var wfd = fdmap.get(fd);
+		if (wfd == null) return i(wasi_errno.BADF.code);
+		var ptr_len = args[2];
+		var buf = copyString(memory, ptr, ptr_len); // maybetrap of string
+                
+		if (!buf.ok()) return i(wasi_errno.INVAL.code);
+		var path_arr = buf.result;
+        
+                var t = WasiPathUtil.normalize_path(path_arr, path_arr.length);
+                if (t.2 != wasi_errno.SUCCESS) return i(t.2.code);
+        
+                var syscall_result = Linux.syscall(SYS_mkdir, (Pointer.atContents(path_arr), MKDIR_MODE));
+                if (syscall_result.0 < 0) return i(mapErrno(syscall_result.0));
+                return i(wasi_errno.SUCCESS.code);
+
+	}
+
+	//def clock_gettime_realtime() -> (HostResult, i64) {
+
+	//	// get the current time
+
+	//	return (i(wasi_errno.NOTSUP.code), 0);
+	//}
+
+	//def get_filestat_set_times(st_atim : i64, st_mtim : i64, fst_flags : i32, wfd : WasiFd) -> HostResult {
+	//	// validate flag
+	//	if ((fst_flags & (~WASI_FILESTAT_TIME_MASK)) != 0) return i(wasi_errno.INVAL.code);
+	//	var now: i64;
+	//	var err: HostResult;
+	//	// Check if either value requires the current time
+	//	if ((fst_flags & (WASI_FILESTAT_SET_ATIM_NOW | WASI_FILESTAT_SET_MTIM_NOW)) != 0) {
+	//		var res = clock_gettime_realtime();
+	//		err = res.0;
+	//		if (err != i(wasi_errno.SUCCESS.code)) {
+	//			return err;
+	//		}
+	//		now = res.1;
+	//	}
+		
+	//	  /* Check if either value is omitted. lib doesn't have an 'omitted' option,
+	//	so get the current stats for the file. This approach isn't perfect, but it
+	//	will do until lib can get better support here. */
+	//	if ((fst_flags & (WASI_FILESTAT_SET_ATIM | WASI_FILESTAT_SET_MTIM)) == 0
+	//		|| (fst_flags & (WASI_FILESTAT_SET_ATIM_NOW | WASI_FILESTAT_SET_MTIM_NOW)) != 0) {
+	//		return i(wasi_errno.INVAL.code);
+	//	}
+	//	return i(wasi_errno.SUCCESS.code);
+		
+	//}
+	def path_filestat_get(args : Range<Value>)->HostResult {
+		var fd = Values.v_i(args[0]), flags = Values.v_i(args[1]), 
+			path_ptr = args[2], path_len = args[3], buf_ptr = Values.v_u(args[4]);
+		
+		var wfd = fdmap.get(fd);
+		if (wfd == null) return i(wasi_errno.BADF.code);
+		var path = copyString(memory, path_ptr, path_len);
+		if (!path.ok()) return i(wasi_errno.INVAL.code);
+		var path_arr = path.result;
+		var syscall_buf = Array<byte>.new(int.!(KERNEL_STAT_SIZE));
+
+		var syscall_result = Linux.syscall(SYS_lstat, (Pointer.atContents(path_arr), Pointer.atContents(syscall_buf)));
+		if (syscall_result.0 < 0) return i(mapErrno(syscall_result.0));
+
+		var copy_back_result = memory.copyIn(buf_ptr, syscall_buf, 0, KERNEL_STAT_SIZE);
+		// I don't think this error is handled in previous example
+		//if (!TrapReason.NONE) return i(wasi_errno.FAULT.code);
+		return i(wasi_errno.SUCCESS.code);
+	}
+
+	//def path_filestat_set_times(args : Range<Value>)->HostResult { 
+	//	var fd = Values.v_i(args[0]), flags = Values.v_i(args[1]), 
+	//		path_ptr = args[2], path_len = args[3], atim = Values.v_l(args[4]), mtim = Values.v_l(args[5]),
+	//		fst_flags = Values.v_i(args[6]);
+	//	// validate flag
+	//	if ((fst_flags & (~WASI_FILESTAT_TIME_MASK)) != 0) return i(wasi_errno.INVAL.code);
+	//	var wfd = fdmap.get(fd);
+	//	if (wfd == null) return i(wasi_errno.BADF.code);
+
+	//	return i(wasi_errno.SUCCESS.code);
+	// }
+	// def path_link(args : Range<Value>)->HostResult { return UNIMPLEMENTED; }
+	// def path_open(args : Range<Value>)->HostResult { return UNIMPLEMENTED; }
+	// def path_readlink(args : Range<Value>)->HostResult { return UNIMPLEMENTED; }
+	// def path_remove_directory(args : Range<Value>)->HostResult { return UNIMPLEMENTED; }
+	// def path_rename(args : Range<Value>)->HostResult { return UNIMPLEMENTED; }
+	// def path_symlink(args : Range<Value>)->HostResult { return UNIMPLEMENTED; }
+	// def path_unlink_file(args : Range<Value>)->HostResult { return UNIMPLEMENTED; }
+
 
 	def random_get(args: Range<Value>) -> HostResult {
 		var ptr = Values.v_u(args[0]), len = Values.v_u(args[1]);
@@ -53,7 +172,7 @@ class X86_64Linux_WspOneModule extends WspOneModule {
 		var clock_id = mapClockId(Values.v_u(args[0]));
 		if (clock_id < 0) return HostResult.Value1(Values.i_v(wasi_errno.INVAL.code));
 		var ptr = Values.v_u(args[1]);
-		var range = memory.range_ol_32(ptr, 8);
+		var range = memory.range_ol_32(ptr, 8); // returns maybe result of range
 		if (range.reason != TrapReason.NONE) return HostResult.Throw(Trap.new(range.reason, null, null));
 		var t = Linux.syscall(SYS_clock_get_res, (clock_id, Pointer.atContents(timespec)));
 		if (t.0 < 0) return i(mapErrno(t.0));
