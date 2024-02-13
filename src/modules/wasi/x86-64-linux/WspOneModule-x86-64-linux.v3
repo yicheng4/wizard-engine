@@ -8,7 +8,11 @@ def SYS_openat = 257;
 def SYS_clock_get_time = 228;
 def SYS_clock_get_res = 229;
 def SYS_getrandom = 318;
+def SYS_mkdir = 83;
+def SYS_link = 86;
 
+// mkdir mode is 0o777
+def MKDIR_MODE = 0x1FF;
 // openat flags
 def O_CLOEXEC = 0x80000;
 def O_PATH = 0x200000;
@@ -79,4 +83,51 @@ class X86_64Linux_WspOneModule extends WspOneModule {
 	def mapErrno(errno: i64) -> int {
 		return int.!(errno);
 	}
+
+	def path_create_directory(args : Range<Value>)->HostResult {
+    		var fd = Values.v_i(args[0]), ptr = args[1];
+		var wfd = fdmap.get(fd);
+		if (wfd == null) return i(wasi_errno.BADF.code);
+		var ptr_len = args[2];
+		var buf = copyString(memory, ptr, ptr_len); 
+
+		if (!buf.ok()) return i(wasi_errno.INVAL.code);
+		var path_arr = buf.result;
+
+                var t = WasiPathUtil.resolve_path(wfd, path_arr);
+                if (t.1 != wasi_errno.SUCCESS) return i(t.1.code);
+
+                var syscall_result = Linux.syscall(SYS_mkdir, (Pointer.atContents(path_arr), MKDIR_MODE));
+                if (syscall_result.0 < 0) return i(mapErrno(syscall_result.0));
+                return i(wasi_errno.SUCCESS.code);
+
+	}
+
+	def path_link(args : Range<Value>)->HostResult { 
+		var old_fd = Values.v_i(args[0]), old_flags = Values.v_u(args[1]), 
+			old_path = args[2], new_fd = Values.v_i(args[3]), new_path = args[4];
+		var old_wfd = fdmap.get(old_fd), new_wfd = fdmap.get(new_fd);
+		if (old_wfd == null || new_wfd == null) return i(wasi_errno.BADF.code);
+		var old_path_arr = copyString(memory, old_path, args[5]);
+		if (!old_path_arr.ok()) return i(wasi_errno.INVAL.code);
+		var new_path_arr = copyString(memory, new_path, args[6]);
+		if (!new_path_arr.ok()) return i(wasi_errno.INVAL.code);
+		var t = WasiPathUtil.resolve_path(old_wfd, old_path_arr.result);
+		if (t.1 != wasi_errno.SUCCESS) return i(t.1.code);
+		var old_resolved = t.0;
+		t = WasiPathUtil.resolve_path(new_wfd, new_path_arr.result);
+		if (t.1 != wasi_errno.SUCCESS) return i(t.1.code);
+		var new_resolved = t.0;
+		var syscall_result = Linux.syscall(SYS_linkat,
+			(old_fd, Pointer.atContents(old_resolved), 
+			new_fd, Pointer.atContents(new_resolved), old_flags));
+		if (syscall_result.0 < 0) return i(mapErrno(syscall_result.0));
+		return i(wasi_errno.SUCCESS.code);
+	 }
+	// def path_open(args : Range<Value>)->HostResult { return UNIMPLEMENTED; }
+	// def path_readlink(args : Range<Value>)->HostResult { return UNIMPLEMENTED; }
+	// def path_remove_directory(args : Range<Value>)->HostResult { return UNIMPLEMENTED; }
+
+
+
 }

@@ -2,6 +2,7 @@
 // See LICENSE for details of Apache 2.0 license.
 component WasiPathUtil {
 	def normalize_path = normalize_path0;
+	def resolve_path = resolve_path0;
 
 }
 
@@ -165,7 +166,7 @@ def normalize_relative_path(path: Array<byte>, fd_path: Array<byte>) -> (Array<b
 	return (normalized, wasi_errno.SUCCESS);
 }
 
-def resolve_path(fdinfo: WasiFd, path: Array<byte>) -> (Array<byte>, wasi_errno) {
+def resolve_path0(fdinfo: WasiFd, path: Array<byte>) -> (Array<byte>, wasi_errno) {
 	var fd_path = fdinfo.path;
 	var normalized : Array<byte>;
 	if (is_absolute_path(path)) {
