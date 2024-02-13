@@ -25,7 +25,7 @@ def find_next_slash(s: Array<byte>, start_pt: i32) -> int {
 	return -1;
 }
 
-def normalize_path0(path: Array<byte>, pathLen: i32) -> (Array<byte>, i32, wasi_errno) {
+def normalize_path0(path: Array<byte>, pathLen: i32) -> (Array<byte>) {
 	var cur = 0;
 	var normalized = StringBuilder.new();
 	var nextSlash = 0;
@@ -102,5 +102,85 @@ def normalize_path0(path: Array<byte>, pathLen: i32) -> (Array<byte>, i32, wasi_
 		}
 	}
 	var len = normalized.length;
-	return (normalized.toString(), len, wasi_errno.SUCCESS);
+	return normalized.toString();
+}
+
+
+def is_abspath_sandboxed(abspath: Array<byte>, fd_path: Array<byte>) -> bool {
+	var abspath_len = abspath.length;
+	var fd_path_len = fd_path.length;
+	if (is_absolute_path(fd_path)) {
+		return Strings.equal(abspath, fd_path);
+	}
+	/* Handle relative fds that normalized to '.' */
+	if (fd_path_len == 1 && fd_path[0] == '.') {
+		/* If the fd's path is '.', then any path does not begin with '..' is OK. */
+		if ((abspath_len == 2 && abspath[0] == '.' && abspath[1] == '.') ||
+			(abspath_len > 2 && abspath[0] == '.' && abspath[1] == '.' && abspath[2] == '/')) {
+			return false;
+			}
+		return true;
+	}
+
+	if (!Strings.equal(abspath, fd_path)) {
+		return false;
+	}
+
+	/* Fail if the remaining path starts with '..', '../', '/..', or '/../'. */
+	var remaining_len = abspath_len - fd_path_len;
+	if (remaining_len < 2) {
+		return true;
+	}
+	var index = fd_path_len;
+	if (abspath[index] == '/') {
+		index += 1;
+		remaining_len -= 1;
+	}
+	if ((remaining_len == 2 && abspath[index] == '.' && abspath[index + 1] == '.') ||
+		(remaining_len > 2 && abspath[index] == '.' && abspath[index + 1] == '.' && abspath[index + 2] == '/') )
+	{
+		return false;
+	}
+	return true;
+
+}
+
+def normalize_abspath(abspath: Array<byte>, fd_path: Array<byte>) -> (Array<byte>, wasi_errno) {
+	var normalized = normalize_path0(abspath, abspath.length);
+	if (!is_abspath_sandboxed(normalized, fd_path)) {
+		return (normalized, wasi_errno.NOTCAPABLE);
+	}
+	return (normalized, wasi_errno.SUCCESS);
+}
+
+def normalize_relative_path(path: Array<byte>, fd_path: Array<byte>) -> (Array<byte>, wasi_errno) {
+	var combined = StringBuilder.new();
+	combined.puts(fd_path);
+	combined.putc('/');
+	combined.puts(path);
+	var normalized = normalize_path0(combined.toString(), combined.length);
+	if (!is_abspath_sandboxed(normalized, fd_path)) {
+		return (normalized, wasi_errno.NOTCAPABLE);
+	}
+	return (normalized, wasi_errno.SUCCESS);
+}
+
+def resolve_path(fdinfo: WasiFd, path: Array<byte>) -> (Array<byte>, wasi_errno) {
+	var fd_path = fdinfo.path;
+	var normalized : Array<byte>;
+	if (is_absolute_path(path)) {
+		var result = normalize_abspath(path, fd_path);
+		if (result.1 != wasi_errno.SUCCESS) {
+			return result;
+		}
+		normalized = result.0;
+	} else {
+		var result = normalize_relative_path(path, fd_path);
+		if (result.1 != wasi_errno.SUCCESS) {
+			return result;
+		}
+		normalized = result.0;
+	}
+	return (normalized, wasi_errno.SUCCESS);
+
 }
