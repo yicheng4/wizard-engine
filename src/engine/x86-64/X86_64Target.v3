@@ -12,6 +12,9 @@ component Target {
 	def limit_memory_pages = 65536u;
 	def newMemory = X86_64Memory.new;
 	def forceGC = RiGc.forceGC;
+	def newWasmStack() -> X86_64Stack {
+		return X86_64Stack.new(EngineOptions.stackSize);
+	}
 	def tagging = Tagging.new(!FeatureDisable.valueTags, !FeatureDisable.simd);
 
 	new() {
@@ -88,7 +91,7 @@ component Target {
 		f.target_code = TargetCode(entry);
 	}
 	def rdtsc() -> u64 {
-		return X86_64PreGenStubs.getRdtscFunc()();
+		return RDTSC_FUNC.get()();
 	}
 }
 
@@ -97,9 +100,10 @@ type TargetCode(spc_entry: Pointer) #unboxed { }
 type TargetModule(spc_code: X86_64SpcModuleCode) #unboxed { }
 type TargetFrame(sp: Pointer) #unboxed {
 	def getFrameAccessor() -> FrameAccessor {
-		return RT.getFrameAccessor(sp);
+		return X86_64Stacks.getFrameAccessor(sp);
 	}
 }
+type SpcResultForStub(wf: WasmFunction, entrypoint: Pointer, thrown: Throwable) #unboxed { }
 
 class X86_64ExecutionStrategy extends ExecutionStrategy {
 	// Call a function with arguments and return a result.
@@ -354,4 +358,14 @@ def applyJitFilter(f: FuncDecl, how: string) -> bool {
 	}
 	if (!found && Trace.compiler) Trace.OUT.put2("func[%d] %s compile suppressed by filter", f.func_index, how).outln();
 	return found;
+}
+
+def RDTSC_FUNC = X86_64PreGenFunc<void, u64>.new("rdtsc", null, genRdtsc);
+
+def genRdtsc(ic: X86_64InterpreterCode, w: DataWriter) {
+	def asm = X86_64Assemblers.create64(w);
+	asm.rdtsc();
+	asm.q.shl_r_i(X86_64Regs.RDX, 32);
+	asm.q.or_r_r(X86_64Regs.RAX, X86_64Regs.RDX); // XXX: use V3 return register symbolic constant
+	asm.ret();
 }
