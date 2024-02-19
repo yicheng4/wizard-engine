@@ -6,6 +6,8 @@ component WasiPathUtil {
 
 }
 
+def LOOKUP_SYMLINK_FOLLOW = 1;
+
 def is_absolute_path(path: Array<byte>) -> bool {
 	return (path.length > 0) && (path[0] == '/');
 }
@@ -166,7 +168,7 @@ def normalize_relative_path(path: Array<byte>, fd_path: Array<byte>) -> (Array<b
 	return (normalized, wasi_errno.SUCCESS);
 }
 
-def resolve_path0(fdinfo: WasiFd, path: Array<byte>) -> (Array<byte>, wasi_errno) {
+def resolve_path_without_link(fdinfo: WasiFd, path: Array<byte>) -> (Array<byte>, wasi_errno) {
 	var fd_path = fdinfo.path;
 	var normalized : Array<byte>;
 	if (is_absolute_path(path)) {
@@ -184,4 +186,18 @@ def resolve_path0(fdinfo: WasiFd, path: Array<byte>) -> (Array<byte>, wasi_errno
 	}
 	return (normalized, wasi_errno.SUCCESS);
 
+}
+
+def resolve_path0(fdinfo: WasiFd, path: Array<byte>, flags: i32) -> (Array<byte>, wasi_errno) {
+	var result = resolve_path_without_link(fdinfo, path);
+	if (result.1 != wasi_errno.SUCCESS) {
+		return result;
+	}
+	var normalized = result.0;
+	if ((flags & LOOKUP_SYMLINK_FOLLOW) == LOOKUP_SYMLINK_FOLLOW) {
+		// not able to complete this part
+		// need to know about preopen
+		return (normalized, wasi_errno.SUCCESS);
+	}
+	return (normalized, wasi_errno.SUCCESS);
 }
