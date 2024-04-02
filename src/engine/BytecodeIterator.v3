@@ -81,11 +81,19 @@ class BytecodeIterator {
 				HEAP_TYPE,
 				U32,
 				I32,
-				I64 => codeptr.skip_leb();
+				I64,
+				CONT_INDEX => codeptr.skip_leb();
 				VALUE_TYPES => codeptr.skip_value_types();
 				LABELS => {
 					var count = codeptr.read_uleb32();
 					for (i < count + 1) codeptr.skip_leb();
+				}
+				HANDLERS => {
+					var count = codeptr.read_uleb32();
+					for (i < count) {
+						codeptr.skip_leb();
+						codeptr.skip_leb();
+					}
 				}
 				CATCHES => {
 					var count = codeptr.read_uleb32();
@@ -215,6 +223,7 @@ class BytecodeIterator {
 		def read_FUNC = read_uleb;
 		def read_FIELD = read_uleb;
 		def read_TAG = read_uleb;
+		def read_CONT = read_uleb;
 		def read_LANE = read_u8;
 		def read_ZEROB = read_u8;
 		def read_VALTS = cp.read_ValueTypeCodes;
@@ -443,7 +452,7 @@ class BytecodeIterator {
 			ARRAY_NEW_FIXED =>	v.visit_ARRAY_NEW_FIXED(read_ARRAYT(), cp.read_uleb31());
 			ARRAY_NEW_DATA =>		v.visit_ARRAY_NEW_DATA(read_ARRAYT(), read_DATA());
 			ARRAY_NEW_ELEM =>		v.visit_ARRAY_NEW_ELEM(read_ARRAYT(), read_ELEM());
-			I31_NEW =>			v.visit_I31_NEW();
+			REF_I31 =>			v.visit_REF_I31();
 			I31_GET_S =>			v.visit_I31_GET_S();
 			I31_GET_U =>			v.visit_I31_GET_U();
 			REF_TEST =>			v.visit_REF_TEST(read_HEAPT());
@@ -454,8 +463,8 @@ class BytecodeIterator {
 			REF_CAST_NULL =>		v.visit_REF_CAST_NULL(read_HEAPT());
 			ARRAY_INIT_DATA => 		v.visit_ARRAY_INIT_DATA(read_ARRAYT(), read_DATA());
 			ARRAY_INIT_ELEM =>		v.visit_ARRAY_INIT_ELEM(read_ARRAYT(), read_ELEM());
-			EXTERN_INTERNALIZE =>		v.visit_EXTERN_INTERNALIZE();
-			EXTERN_EXTERNALIZE =>		v.visit_EXTERN_EXTERNALIZE();
+			ANY_CONVERT_EXTERN =>		v.visit_ANY_CONVERT_EXTERN();
+			EXTERN_CONVERT_ANY =>		v.visit_EXTERN_CONVERT_ANY();
 			I32_TRUNC_SAT_F32_S =>		v.visit_I32_TRUNC_SAT_F32_S();
 			I32_TRUNC_SAT_F32_U =>		v.visit_I32_TRUNC_SAT_F32_U();
 			I32_TRUNC_SAT_F64_S =>		v.visit_I32_TRUNC_SAT_F64_S();
@@ -777,6 +786,12 @@ class BytecodeIterator {
 			I64_ATOMIC_RMW8_CMPXCHG_U =>	v.visit_I64_ATOMIC_RMW8_CMPXCHG_U(read_MEMARG());
 			I64_ATOMIC_RMW16_CMPXCHG_U =>	v.visit_I64_ATOMIC_RMW16_CMPXCHG_U(read_MEMARG());
 			I64_ATOMIC_RMW32_CMPXCHG_U =>	v.visit_I64_ATOMIC_RMW32_CMPXCHG_U(read_MEMARG());
+
+			CONT_NEW => 				v.visit_CONT_NEW(read_CONT());
+			CONT_BIND => 				v.visit_CONT_BIND(read_CONT(), read_CONT());
+			SUSPEND => 					v.visit_SUSPEND(read_TAG());
+			RESUME => 					v.visit_RESUME(read_CONT());
+			RESUME_THROW => 			v.visit_RESUME_THROW(read_CONT(), read_TAG());
 		}
 	}
 	def trace(out: TraceBuilder, module: Module, tracer: InstrTracer) {

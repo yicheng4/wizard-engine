@@ -66,6 +66,12 @@ class X86_64MacroAssembler extends MacroAssembler {
 		// following the call, return addresses have a {-1} adjustment.
 		recordSourceLoc(asm.pos() - 1);
 	}
+	def getScratchReg(kind: ValueKind) -> Reg {
+		match (kind) {
+			I32, I64, REF => return regConfig.scratch;
+			F32, F64, V128 => return X86_64MasmRegs.XMM15; // TODO: make configurable
+		}
+	}
 	def getV3ParamReg(kind: ValueKind, index: int) -> Reg {
 		match (kind) {
 			I32, I64, REF => return X86_64MasmRegs.PARAM_GPRS[index];
@@ -93,7 +99,7 @@ class X86_64MacroAssembler extends MacroAssembler {
 			F32 => asm.movss_s_m(X(dst), X86_64Addr.new(a, i, 4, getOffsets().Array_contents));
 			I64, REF => asm.movq_r_m(G(dst), X86_64Addr.new(a, i, 8, getOffsets().Array_contents));
 			F64 => asm.movsd_s_m(X(dst), X86_64Addr.new(a, i, 8, getOffsets().Array_contents));
-			ABS, V128 => asm.movdqu_s_m(X(dst), X86_64Addr.new(a, i, 16, getOffsets().Array_contents)); // TODO: can't scale by 16
+			V128 => asm.movdqu_s_m(X(dst), X86_64Addr.new(a, i, 16, getOffsets().Array_contents)); // TODO: can't scale by 16
 		}
 	}
 	def emit_bounds_check_v3_array(array: Reg, index: Reg, oob_label: MasmLabel) {
@@ -145,7 +151,7 @@ class X86_64MacroAssembler extends MacroAssembler {
 			REF, I64 => asm.movq_r_m(G(dst), X86_64Addr.new(b, t.0, 1, t.1));
 			F32 => asm.movss_s_m(X(dst), X86_64Addr.new(b, t.0, 1, t.1));
 			F64 => asm.movsd_s_m(X(dst), X86_64Addr.new(b, t.0, 1, t.1));
-			ABS, V128 => asm.movdqu_s_m(X(dst), X86_64Addr.new(b, t.0, 1, t.1));
+			V128 => asm.movdqu_s_m(X(dst), X86_64Addr.new(b, t.0, 1, t.1));
 		}
 	}
 	def emit_v128_load_lane_r_m<T>(dst: Reg, src: X86_64Addr, asm_mov_r_m: (X86_64Gpr, X86_64Addr) -> T) {
@@ -178,7 +184,7 @@ class X86_64MacroAssembler extends MacroAssembler {
 			REF, I64 => asm.movq_m_r(X86_64Addr.new(b, t.0, 1, t.1), G(val));
 			F32 => asm.movss_m_s(X86_64Addr.new(b, t.0, 1, t.1), X(val));
 			F64 => asm.movsd_m_s(X86_64Addr.new(b, t.0, 1, t.1), X(val));
-			ABS, V128 => asm.movdqu_m_s(X86_64Addr.new(b, t.0, 1, t.1), X(val));
+			V128 => asm.movdqu_m_s(X86_64Addr.new(b, t.0, 1, t.1), X(val));
 		}
 	}
 
@@ -192,19 +198,7 @@ class X86_64MacroAssembler extends MacroAssembler {
 		return (r, int.view(offset));
 	}
 
-	def emit_mov_r_r(reg: Reg, reg2: Reg) {
-		var rd = G(reg);
-		if (rd != null) {
-			var rs = G(reg2);
-			if (rs != null) asm.movq_r_r(rd, G(reg2));
-			else asm.movq_r_s(rd, X(reg2));
-		} else {
-			var xd = X(reg), xs = X(reg2);
-			if (xs != null) asm.movsd_s_s(xd, xs);
-			else asm.movq_s_r(xd, G(reg2));
-		}
-	}
-	def emit_movk_r_r(kind: ValueKind, reg: Reg, reg2: Reg) {
+	def emit_mov_r_r(kind: ValueKind, reg: Reg, reg2: Reg) {
 		var rd = G(reg);
 		if (rd != null) {
 			var rs = G(reg2);
@@ -227,7 +221,7 @@ class X86_64MacroAssembler extends MacroAssembler {
 			I64, REF => asm.movq_r_m(G(reg), addr);
 			F32 => asm.movss_s_m(X(reg), addr);
 			F64 => asm.movsd_s_m(X(reg), addr);
-			ABS, V128 => asm.movdqu_s_m(X(reg), addr);
+			V128 => asm.movdqu_s_m(X(reg), addr);
 		}
 	}
 	def emit_mov_r_i(reg: Reg, val: int) {
@@ -271,7 +265,7 @@ class X86_64MacroAssembler extends MacroAssembler {
 			I64, REF => asm.movq_m_r(addr, G(reg));
 			F32 => asm.movss_m_s(addr, X(reg));
 			F64 => asm.movsd_m_s(addr, X(reg));
-			ABS, V128 => asm.movdqu_m_s(addr, X(reg));
+			V128 => asm.movdqu_m_s(addr, X(reg));
 		}
 	}
 	def emit_mov_m_i(ma: MasmAddr, val: int) {
@@ -306,7 +300,7 @@ class X86_64MacroAssembler extends MacroAssembler {
 				asm.movq_r_m(scratch, A(src));
 				asm.movq_m_r(A(dst), scratch);
 			}
-			ABS, V128 => {
+			V128 => {
 				var scratch = R.XMM15; // TODO
 				asm.movdqu_s_m(scratch, A(src));
 				asm.movdqu_m_s(A(dst), scratch);
@@ -467,7 +461,7 @@ class X86_64MacroAssembler extends MacroAssembler {
 			F32 => { asm.d.popq_r(scratch); asm.movd_s_r(X(reg), scratch); }
 			I64, REF => asm.q.popq_r(G(reg));
 			F64 => { asm.q.popq_r(scratch);  asm.movq_s_r(X(reg), scratch); }
-			ABS, V128 => System.error("X86_64MacroAssembler", "cannot pop v128 or abstract type"); // TODO
+			V128 => System.error("X86_64MacroAssembler", "cannot pop v128 type"); // TODO
 		}
 	}
 	def emit_ret() {
@@ -701,11 +695,20 @@ class X86_64MacroAssembler extends MacroAssembler {
 	def emit_jump_r(reg: Reg) {
 		asm.ijmp_r(G(reg));
 	}
-	def emit_increment_CountProbe(tmp: Reg, probe: CountProbe) {
+	def emit_increment_CountProbe(tmp: Reg, probe: CountProbe, increment: u64) {
 		var r1 = G(tmp);
 		var refOffset = asm.movq_r_p(r1, Pointer.atObject(probe) - Pointer.NULL);
 		addEmbeddedRefOffset(refOffset);
-		asm.inc_m(r1.plus(getOffsets().CountProbe_count));
+		var addr = r1.plus(getOffsets().CountProbe_count);
+		if (increment == 1) {
+			asm.inc_m(addr);
+		} else if (u31.?(increment)) {
+			asm.add_m_i(addr, u31.!(increment));
+		} else {
+			var g = G(tmp);
+			asm.movq_r_l(g, long.view(increment));
+			asm.add_m_r(addr, g);
+		}
 	}
 	def emit_call_OperandProbe_i_v_fire(probe: OperandProbe_i_v, value_reg: Reg) {
 		var codePtr = CiRuntime.unpackClosure<OperandProbe_i_v, u32, void>(probe.fire_i).0;
@@ -715,17 +718,22 @@ class X86_64MacroAssembler extends MacroAssembler {
 		asm.icall_r(scratch);
 		recordRetSourceLoc();
 	}
-	def emit_call_runtime_callHost(func_arg: Reg) {
- 		emit_call_runtime(RT.runtime_callHost);
+	def emit_call_HostCallStub() {
+		var ic = X86_64PreGenStubs.getInterpreterCode();
+		asm.movq_r_l(scratch, (ic.start + ic.header.hostCallStubOffset) - Pointer.NULL);
+		asm.icall_r(scratch);
+		recordRetSourceLoc();
 	}
-	def emit_call_runtime_callHost2(func_arg: Reg) {
-		emit_call_runtime(RT.runtime_callHost2);
+	def emit_jump_HostCallStub() {
+		var ic = X86_64PreGenStubs.getInterpreterCode();
+		asm.movq_r_l(scratch, (ic.start + ic.header.hostCallStubOffset) - Pointer.NULL);
+		asm.ijmp_r(scratch);
+	}
+	def emit_call_runtime_callHost(func_arg: Reg) {
+		emit_call_runtime(RT.runtime_callHost);
 	}
 	def emit_call_runtime_TRAP() {
 		emit_call_runtime(RT.runtime_TRAP);
-	}
-	def emit_jump_runtime_callHost(func_arg: Reg) {
-		emit_jump_runtime(RT.runtime_callHost);
 	}
 	def emit_jump_to_trap_at(reason: TrapReason) {
 		var ip = trap_stubs.getIpForReason(reason);
@@ -734,6 +742,7 @@ class X86_64MacroAssembler extends MacroAssembler {
 	}
 	def emit_call_runtime_op(op: Opcode) {
 		match (op) {
+			THROW => emit_call_runtime(RT.runtime_THROW);
 			GLOBAL_GET => emit_call_runtime(RT.runtime_GLOBAL_GET);
 			GLOBAL_SET => emit_call_runtime(RT.runtime_GLOBAL_SET);
 			TABLE_GET => emit_call_runtime(RT.runtime_TABLE_GET);

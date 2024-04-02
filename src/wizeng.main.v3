@@ -30,7 +30,7 @@ def main(args: Array<string>) -> int {
 		}
 	}
 
-	if (WizengOptions.color) Palette.enable(); 
+	if (WizengOptions.color) Palette.enable();
 
 	if (WizengOptions.pregenFile != null) {
 		var err = Target.pregenIntoFile(WizengOptions.pregenFile);
@@ -63,7 +63,10 @@ def main(args: Array<string>) -> int {
 	var result = engine.loadWasmFile(path);
 	var module: Module;
 	match (result) {
-		Ok(m) => module = m;
+		Ok(m) => {
+			module = m;
+			Trace.instrumentModule(m);
+		}
 		FileNotFound => return ErrorBuilder.new()
 			.puts("wizeng: could not load file ")
 			.puts(path)
@@ -149,7 +152,12 @@ def main(args: Array<string>) -> int {
 	// Execute the main entrypoint.
 	Execute.exit_code = 0;
 	for (i < monitors.length) monitors[i].onMain(entry.0, entry.1);
-	var r = Metrics.main_time_us.run(Execute.call, (entry.0, entry.1));
+	var before_us = Metrics.main_time_us.ticks();
+	var before_cycles = Metrics.main_time_cycles.ticks();
+	var r = Execute.call(entry.0, entry.1);
+	Metrics.main_time_cycles.updateDiff(before_cycles);
+	Metrics.main_time_us.updateDiff(before_us);
+
 	match (r) {
 		Value(vals) => {
 			if (vals.length == 1) {
@@ -171,7 +179,7 @@ def main(args: Array<string>) -> int {
 			return exitTrap(monitors, instance, thrown);
 		}
 		Suspend(stack, tag, valrefs) => {
-			return exitTrap(monitors, instance, stack.invalidSuspend());
+			return exitTrap(monitors, instance, stack.trap(TrapReason.INVALID_SUSPEND));
 		}
 	}
 	// Call monitors on finish
@@ -260,7 +268,7 @@ class ImportTracer(var filter: DeclFilter) {
 				match (result) {
 					Value(vals) => return HostResult.ValueN(vals);
 					Throw(thrown) => return HostResult.Throw(thrown);
-					Suspend(stack, tag, valregs) => return HostResult.Throw(stack.invalidSuspend());
+					Suspend(stack, tag, valregs) => return HostResult.Throw(stack.trap(TrapReason.INVALID_SUSPEND));
 				}
 			}
 			hf: HostFunction => {

@@ -11,9 +11,29 @@ component Target {
 	var unused = ExecuteOptions.registerDefaultMode("v3-int", V3InterpreterOnlyStrategy.new(), "slow interpreter only");
 
 	def forceGC() { } // nop
-	def rdtsc() -> u64 { return u64.view(System.ticksNs()); }
+	def ticksNs() -> u64 { return u32.view(System.ticksNs()); }
+	def rdtsc() -> u64 { return u32.view(System.ticksNs()); }
+	def getRdtsc() -> (void -> u64) { return rdtsc; }
 	def pregenIntoFile(filename: string) -> ErrorBuilder {
 		return ErrorBuilder.new().puts("interpreter generator: nothing to generate for this target");
+	}
+
+	def getTestTiers() -> List<(string, ExecutionStrategy)> {
+		var int_mode = ("int:", V3InterpreterOnlyStrategy.new());
+		return List.new(int_mode, null);
+	}
+	def fastFwCopy(dst: Range<byte>, src: Range<byte>) {
+		var i = 0u, max = dst.length & ~7;
+		while (i < max) {
+			var dref = Ref<Layout_u64>.of(dst[i ...]);
+			var sref = Ref<Layout_u64>.of(src[i ...]);
+			dref.val = sref.val;
+			i += 8;
+		}
+		while (i < dst.length) {
+			dst[i] = src[i];
+			i++;
+		}
 	}
 }
 
@@ -28,7 +48,7 @@ class V3InterpreterOnlyStrategy extends ExecutionStrategy {
 		if (stack == null) stack = V3Interpreter.new();
 		var r = stack.reset(func)
 			.bind(args)
-			.resume(null);
+			.resume();
 		match (r) {
 			Value(vals) => {
 				if (cached_stack == null) cached_stack = stack;

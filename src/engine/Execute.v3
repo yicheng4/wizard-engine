@@ -7,7 +7,6 @@
 component Execute {
 	var limits = Limits.new();		// limits on execution/memory
 	var exit_code: int;
-	var handleTrap = defaultTrap;		// how to handle traps
 	var tiering: ExecutionStrategy;
 	def trapObjects = Array<Trap>.new(TrapReason.count);
 	def NO_FRAMES = Array<(WasmFunction, int)>.new(0);
@@ -25,90 +24,12 @@ component Execute {
 	def call(func: Function, args: Range<Value>) -> Result {
 		return tiering.call(func, args);
 	}
-	def funcSigMismatch() -> HostResult.Throw {
-		return HostResult.Throw(Trap.new(TrapReason.FUNC_SIG_MISMATCH, null, null));
-	}
-	def trap(reason: TrapReason, hf: HostFunction) -> Result.Throw {
-		var segment = if(hf != null, StackSegment.new(null, hf, NO_FRAMES));
-		return Result.Throw(Trap.new(reason, null, segment));
-	}
 
 	// Traces calls to host functions.
 	def traceCallHostFunction(hf: HostFunction) {
 //TODO		var c = getCallStack();
 //TODO		for (i < c.top) Trace.OUT.sp();
 		Trace.OUT.put2("callHost(\"%q\": %q)", hf.render, hf.sig.render).outln();
-	}
-
-	def fwBoundCall(f: Function, args1: Array<Value>, args2: Array<Value>) -> HostResult {
-		var al = args1.length, args = Array<Value>.new(al + args2.length);
-		for (i < al) args[i] = args1[i];
-		for (i < args2.length) args[i + al] = args2[i];
-		return HostResult.TailCall(f, args);
-	}
-	def matchRtt(obj: Object, rtt: HeapTypeDecl) -> bool {
-		match (obj) {
-			x: HeapObject => return ValueTypes.isAssignableHeap(x.decl, rtt);
-			x: WasmFunction => return ValueTypes.isAssignableHeap(x.sig, rtt);
-		}
-		return false;
-	}
-	def doCast(instance: Instance, nullable: bool, htcode: int, val: Value) -> bool {
-		match (htcode) {
-			BpHeapTypeCode.FUNC.val => return checkRef(nullable, Function.?, val);
-			BpHeapTypeCode.EXTERN.val => return checkI31OrRef(nullable, Object.?, val);
-			BpHeapTypeCode.ARRAY.val => return checkRef(nullable, HeapArray.?, val);
-			BpHeapTypeCode.STRUCT.val => return checkRef(nullable, HeapStruct.?, val);
-			BpHeapTypeCode.ANY.val => return checkI31OrRef(nullable, Object.?, val);
-			BpHeapTypeCode.EQ.val => return checkI31OrRef(nullable, HeapObject.?, val);
-			BpHeapTypeCode.I31.val => return checkI31OrRef(nullable, isFalse, val);
-			BpHeapTypeCode.NOFUNC.val, // fallthru
-			BpHeapTypeCode.NOEXTERN.val, // falltrhu
-			BpHeapTypeCode.NONE.val => return checkRef(nullable, isFalse, val);
-			_ => {
-				if (!Value.Ref.?(val)) return false;
-				var obj = Value.Ref.!(val).val;
-				if (obj == null) return nullable;
-				var index = u32.!(htcode); // XXX: make this a runtime error?
-				var rtt = instance.heaptypes[index];
-				return matchRtt(obj, rtt);
-			}
-		}
-	}
-	private def isFalse(obj: Object) -> bool {
-		return false;
-	}
-	private def checkI31OrRef(nullable: bool, checkRef: Object -> bool, val: Value) -> bool {
-		match (val) {
-			I31 => return true;
-			Ref(obj) => {
-				if (obj == null) return nullable;
-				return checkRef(obj);
-			}
-			_ => return false;
-		}
-	}
-	private def checkRef(nullable: bool, q: Object -> bool, val: Value) -> bool {
-		if (!Value.Ref.?(val)) return false;
-		var obj = Value.Ref.!(val).val;
-		if (obj == null) return nullable;
-		return q(obj);
-	}
-
-	def copyElemsInto(dest: Array<Value>, instance: Instance, dst_offset: u32, elem: ElemDecl, src_offset: u32, size: u32) -> bool {
-		if (elem == null) {
-			if (ArrayUtil.boundsCheck(dest, dst_offset, 0, size) < 0) return false;
-			if (ArrayUtil.boundsCheck<byte>(null, src_offset, 0, size) < 0) return false;
-			return true;
-		}
-		match (elem.details) {
-			FuncRefs(vals) => {
-				return ArrayUtil.safeCopyF(dest, dst_offset, vals, src_offset, size, instance.getFunctionAsVal);
-			}
-			Exprs(vals) => {
-				return ArrayUtil.safeCopyF(dest, dst_offset, vals, src_offset, size, instance.evalInitExpr);
-			}
-		}
 	}
 }
 
@@ -182,13 +103,6 @@ type Resumption {
 	case Trap(reason: TrapReason, trace: bool);
 }
 
-def defaultBreak() -> Resumption {
-	return Resumption.Continue;
-}
-def defaultTrap(reason: TrapReason) -> Resumption {
-	return Resumption.Trap(reason, false);
-}
-
 // The execution strategy controls how the engine executes Wasm bytecode, e.g. whether
 // an interpreter or compiler(s) are used, and at what points. It interposes at a number
 // of important events in the lifecycle of Wasm modules and instances and may or may not
@@ -229,6 +143,7 @@ class ExecutionStrategy {
 	def onInstantiateFinish(instantiator: Instantiator, err: ErrorGen) { }
 
 	// Called before a test run of a function. (For testing only).
+	def onTestModule(m: Module) { }
 	def onTestRun(wf: WasmFunction, err: ErrorGen) { }
 
 	// Called if a new function is created in a module.

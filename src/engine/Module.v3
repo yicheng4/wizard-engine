@@ -10,7 +10,6 @@ class Module(filename: string) {
 	def imports = Vector<Decl>.new(); // all imports
 
 	def heaptypes = Vector<HeapTypeDecl>.new();
-	def abstypes = Vector<AbsTypeDecl>.new();	// ABS type extension
 	def functions = Vector<FuncDecl>.new();
 	def tables = Vector<TableDecl>.new();
 	def memories = Vector<MemoryDecl>.new();
@@ -48,11 +47,6 @@ class Module(filename: string) {
 				decls.put(Decl2.Array(x.heaptype_index = index));
 				heaptypes.put(x);
 			}
-			x: AbsTypeDecl => {
-				var index = abstypes.length;
-				decls.put(Decl2.AbsType(x.abstype_index = index));
-				abstypes.put(x);
-			}
 			x: FuncDecl => {
 				var index = functions.length;
 				decls.put(Decl2.Func(x.func_index = index, x.sig_index));
@@ -86,23 +80,14 @@ class Module(filename: string) {
 					if (SigDecl.?(d)) x.fields = SigDecl.!(d).params;
 				}
 			}
-			x: ImportCommandDecl => {
-				var index = imports.length;
-				decls.put(Decl2.ImportCommand(index));
-			}
 		}
 	}
 	// Add a new import declaration to this module. Adds this declaration to {imports} as well.
-	def addImport(module_name: string, field_name: string, args: Array<Decl>, d: Decl) {
+	def addImport(module_name: string, field_name: string, d: Decl) {
 		if (d == null) return;
-		if (args == null) args = Modules.NO_IMPORT_ARGS;
-		d.imp = ImportInfo.new(module_name, field_name, imports.length, args);
+		d.imp = ImportInfo.new(module_name, field_name, imports.length);
 		addDecl(d);
 		imports.put(d);
-	}
-	// Returns {true} if this module contains any abstract type imports.
-	def isAbstract() -> bool {
-		return abstypes.length > 0;
 	}
 	// Get the reference type at the given index.
 	def getRefType(nullable: bool, type_index: int) -> ValueType {
@@ -111,29 +96,13 @@ class Module(filename: string) {
 }
 
 // For imported quantities, the module name, field name, index, and args.
-class ImportInfo(module_name: string, field_name: string, import_index: int, args: Array<Decl>) {
+class ImportInfo(module_name: string, field_name: string, import_index: int) {
 }
 
 // Superclass of all declared and importable/exportable declarations.
 class Decl {
 	var imp: ImportInfo;
 	def imported() -> bool { return imp != null; }
-}
-
-// Abstract type declaration. (ext:type-imports)
-class AbsTypeDecl(has_default: bool, is_externref: bool, assignable: Array<ValueType>) extends Decl {
-	var abstype_index = -1;
-	def isAssignableTo(t: ValueType) -> bool {
-		if (is_externref && t == ValueTypes.EXTERNREF) return true;
-		match (t) {
-			Abstract(it) => if (this == it) return true;
-			_ => ;
-		}
-		for (s in assignable) {
-			if (ValueTypes.isAssignable(s, t)) return true;
-		}
-		return false;
-	}
 }
 
 def NO_HANDLERS: Array<ExHandlerEntry> = [];
@@ -226,6 +195,7 @@ class FuncDecl(sig_index: int) extends Decl {
 			}
 			i++;
 		}
+		if (Trace.exception) Trace.OUT.puts("  no handler found").outln();
 		return ExHandler(-1, false, -1, -1, -1);
 	}
 }
@@ -251,10 +221,6 @@ class GlobalDecl(valtype: ValueType, mutable: bool, init: InitExpr) extends Decl
 class TagDecl(sig_index: int) extends Decl {
 	var fields: Array<ValueType>;
 	var tag_index = -1;
-}
-
-// Import command declaration. (ext:type-imports)
-class ImportCommandDecl extends Decl {
 }
 
 // An element declaration that can occur in the elements section.
@@ -335,13 +301,11 @@ type Decl2 {
 	case Sig(index: int);
 	case Struct(index: int);
 	case Array(index: int);
-	case AbsType(index: int);
 	case Func(index: int, sig_index: int);
 	case Table(index: int);
 	case Memory(index: int);
 	case Global(index: int);
 	case Tag(index: int);
-	case ImportCommand(index: int);
 }
 
 // Stores {try/catch} information for efficient runtime lookup.

@@ -68,7 +68,7 @@ private class BmBrOnCastProbe(taken: Array<u64>, nullable: bool, htcode: int, su
 	def fire(loc: DynamicLoc) -> Resumption {
 		var accessor = loc.frame.getFrameAccessor();
 		var instance = accessor.func().instance;
-		var result = Execute.doCast(instance, nullable, htcode, accessor.getOperand(0));
+		var result = Runtime.cast(instance, nullable, htcode, accessor.getOperand(0));
 		taken[if(result == success_taken, 0, 1)]++;
 		return Resumption.Continue;
 	}
@@ -307,10 +307,11 @@ def outputInstr(module: Module, source: bool, target: bool, bi: BytecodeIterator
 		.sp();
 	if (source || target) out.puts(Palette.SEPARATOR);
 	else out.puts(Palette.DEFAULT);
+	out.puts("    ").mark();
 	bi.traceOrig(out, module, tracer);
-	var adjustment = 6;
-	if (WizengOptions.color) adjustment = 17;
-	out.rjustify(' ', out.length - adjustment, 27).puts(Palette.DEFAULT);
+	var width = 22;
+	if (WizengOptions.color) width += 11;
+	out.ljustify_mark(width).puts(Palette.DEFAULT);
 }
 
 // output count helper

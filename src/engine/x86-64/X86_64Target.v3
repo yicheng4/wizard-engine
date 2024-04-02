@@ -12,9 +12,8 @@ component Target {
 	def limit_memory_pages = 65536u;
 	def newMemory = X86_64Memory.new;
 	def forceGC = RiGc.forceGC;
-	def newWasmStack() -> X86_64Stack {
-		return X86_64Stack.new(EngineOptions.stackSize);
-	}
+	def newWasmStack = X86_64StackManager.getFreshStack;
+	def recycleWasmStack = X86_64StackManager.recycleStack;
 	def tagging = Tagging.new(!FeatureDisable.valueTags, !FeatureDisable.simd);
 
 	new() {
@@ -26,6 +25,14 @@ component Target {
 			"use fast interpreter only");
 		Instrumentation.probes.onEnable = X86_64Interpreter.onProbeEnable;
 		Instrumentation.probes.onDisable = X86_64Interpreter.onProbeDisable;
+	}
+
+	def getTestTiers() -> List<(string, ExecutionStrategy)> {
+		var spc_mode = ("jit:", X86_64SpcAotStrategy.new(true));
+		var int_mode = ("int:", X86_64InterpreterOnlyStrategy.new());
+		var dyn_mode = ("dyn:", X86_64DynamicStrategy.new());
+		var lazy_mode = ("lazy:", X86_64SpcLazyStrategy.new());
+		return List<(string, ExecutionStrategy)>.new(int_mode, Lists.cons3(spc_mode, dyn_mode, lazy_mode));
 	}
 
 	def setTargetCode(f: FuncDecl, addr: Pointer) {
@@ -90,8 +97,26 @@ component Target {
 		var entry = ic.start + ic.header.intSpcEntryOffset;
 		f.target_code = TargetCode(entry);
 	}
+	def ticksNs() -> u64 {
+		return u32.view(System.ticksNs());
+	}
 	def rdtsc() -> u64 {
 		return RDTSC_FUNC.get()();
+	}
+	def getRdtsc() -> (void -> u64) {
+		return RDTSC_FUNC.get();
+	}
+	def fastFwCopy(dst: Range<byte>, src: Range<byte>) { // FAST, danger: uses unsafe Virgil features
+		var dptr = Pointer.atContents(dst), sptr = Pointer.atContents(src);
+		var i = 0, max = dst.length & ~7;
+		while (i < max) {
+			(dptr + i).store<u64>((sptr + i).load<u64>());
+			i += 8;
+		}
+		while (i < dst.length) {
+			(dptr + i).store<byte>((sptr + i).load<byte>());
+			i++;
+		}
 	}
 }
 
@@ -99,7 +124,7 @@ type TargetOsrInfo(spc_entry: Pointer, osr_entries: List<(int, int)>) #unboxed {
 type TargetCode(spc_entry: Pointer) #unboxed { }
 type TargetModule(spc_code: X86_64SpcModuleCode) #unboxed { }
 type TargetFrame(sp: Pointer) #unboxed {
-	def getFrameAccessor() -> FrameAccessor {
+	def getFrameAccessor() -> X86_64FrameAccessor {
 		return X86_64Stacks.getFrameAccessor(sp);
 	}
 }
@@ -108,11 +133,15 @@ type SpcResultForStub(wf: WasmFunction, entrypoint: Pointer, thrown: Throwable) 
 class X86_64ExecutionStrategy extends ExecutionStrategy {
 	// Call a function with arguments and return a result.
 	def call(func: Function, args: Range<Value>) -> Result {
-		return X86_64Runtime.run(func, args); // XXX: specialize for different strategies?
+		return X86_64StackManager.runOnFreshStack(func, args); // XXX: specialize for different strategies?
 	}
 	// Compilation methods called directly by stubs.
 	def lazyCompile(wf: WasmFunction) -> SpcResultForStub;
 	def tierupCompile(wf: WasmFunction) -> SpcResultForStub;
+	// Tiering may require setting up the whole module.
+	def onTestModule(module: Module) {
+		Target.setTieredEntrypoint(module);
+	}
 }
 
 // One tier: fast-int, modules require no pre-processing.
@@ -143,7 +172,7 @@ class X86_64SpcStrategy extends X86_64ExecutionStrategy {
 	}
 	private def compileFunction(wf: WasmFunction, how: string) -> SpcResultForStub {
 		// Check the JIT filter, if there is one
-		if (!applyJitFilter(wf.decl, how)) return SpcResultForStub(wf, X86_64Spc.setInterpreterFallback(wf.decl), null);
+		if (!applyJitFilter(wf.instance.module, wf.decl, how)) return SpcResultForStub(wf, X86_64Spc.setInterpreterFallback(wf.decl), null);
 
 		var module = wf.instance.module;
 		var code = module.target_module.spc_code;
@@ -233,7 +262,7 @@ class X86_64SpcAotStrategy(interpreter_fallback: bool) extends X86_64SpcStrategy
 			var f = module.functions[i];
 			if (f.imported()) continue;
 			starts[i] = w.atEnd().pos;
-			var compiled = applyJitFilter(f, "aot") && compiler.gen(module, f, suberr);
+			var compiled = applyJitFilter(module, f, "aot") && compiler.gen(module, f, suberr);
 			if (!compiled) starts[i] = -1;
 		}
 
@@ -304,7 +333,7 @@ class X86_64DynamicStrategy extends X86_64SpcStrategy {
 	def onTierUp(wf: WasmFunction, pc: int) -> TargetOsrInfo {
 		var module = wf.instance.module;
 		var compiler = newCompiler(module.filename);
-		if (!applyJitFilter(wf.decl, "osr")) {
+		if (!applyJitFilter(wf.instance.module, wf.decl, "osr")) {
 			// OSR compile suppressed
 			wf.decl.tierup_trigger = int.max; // no point in trying for a while
 			return TargetOsrInfo(Pointer.NULL, null);
@@ -350,14 +379,11 @@ def allocateCodeForModule(module: Module, codeSize: int) {
 		module.filename, (mapping.range.start - Pointer.NULL), (mapping.range.end - Pointer.NULL)).outln();
 }
 
-def applyJitFilter(f: FuncDecl, how: string) -> bool {
-	if (EngineOptions.jitFilter == null) return true;
-	var found = false, f_index = f.func_index;
-	for (l = EngineOptions.jitFilter; l != null; l = l.tail) {
-		if (l.head == f_index) { found = true; break; }
-	}
-	if (!found && Trace.compiler) Trace.OUT.put2("func[%d] %s compile suppressed by filter", f.func_index, how).outln();
-	return found;
+def applyJitFilter(module: Module, func: FuncDecl, how: string) -> bool {
+	var filter = EngineOptions.jitFilter;
+	if (filter == null || filter.matches(module, func)) return true;
+	Trace.OUT.put2("func[%d] %s compile suppressed by filter", func.func_index, how).outln();
+	return false;
 }
 
 def RDTSC_FUNC = X86_64PreGenFunc<void, u64>.new("rdtsc", null, genRdtsc);

@@ -1,8 +1,10 @@
-# Wizard: An advanced WebAssembly Engine for Research
+# <img src="https://github.com/titzer/wizard-engine/blob/master/logo/wizard_logo.svg?raw=true" width="32pt"> The Wizard Research Engine
 
-The Wizard Engine is a lightweight WebAssembly virtual machine designed for teaching and research.
-Its implementation is designed to be flexible and easy to grasp, ideal for experimentation and modification.
-Built with the future in mind, it is written in a fast and lightweight safe, garbage-collected programming language, [Virgil](https://github.com/titzer/virgil).
+
+
+The Wizard Research Engine is a fully-featured WebAssembly engine (virtual machine) designed for teaching and research.
+Its implementation is designed to be flexible and easy to grasp, ideal for instrumentation, experimentation and modification.
+Built with the future in mind, it is written in a fast and lightweight, safe, garbage-collected programming language, [Virgil](https://github.com/titzer/virgil).
 
 ## Features ##
 
@@ -12,10 +14,11 @@ Wizard supports Wasm standard features, including:
   * Multi-values
   * Reference types
   * Bulk-memory operations
-  * SIMD (wip)
+  * SIMD
 
 Wizard fully supports these Wasm proposals:
 
+  * Exception handling
   * Tail-call
   * GC
   * Multi-memory
@@ -26,9 +29,8 @@ Other features under development:
 
   * Type imports
   * Threads
-  * Exception handling
 
-Wizard can run testcases specified in the .bin.wast format, like the specification tests that are part of the Wasm spec repo and proposal repos.
+Wizard can run testcases specified in the `.bin.wast format`, like the specification tests that are part of the Wasm spec repo and proposal repos.
 Wizard supports a small embedding environment suitable for running simple programs.
 [WASI](https://github.com/WebAssembly/wasi) support in Wizard is a work in progress.
 

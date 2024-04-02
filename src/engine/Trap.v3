@@ -30,7 +30,7 @@ enum TrapReason {
 	ERROR
 }
 
-// An unboxed result type representing a <T> or a trap. XXX: use an ADT?
+// An unboxed result type representing a <T> or a trap. XXX: use an unboxed ADT.
 type MaybeTrap<T>(result: T, reason: TrapReason) #unboxed {
 	// Check if this represents a trap.
 	def ok() -> bool { return reason == TrapReason.NONE; }
@@ -59,16 +59,22 @@ component Traps {
 	}
 }
 
-// Throwables are abrupt returns that have stack traces that can be thrown.
+// The superclass of all objects that can be thrown and have optional stacktraces.
 class Throwable(var stacktrace: StackSegment) extends Object {
 	// Prepend more frames to the beginning of the stacktrace.
-	def prepend(frames: Array<(WasmFunction, int)>, hf: HostFunction) -> this {
-		stacktrace = StackSegment.new(stacktrace, hf, frames);
+	def prependFrames(frames: Array<(WasmFunction, int)>) -> this {
+		stacktrace = StackSegment.new(stacktrace, null, frames);
+	}
+	def prependHostFunction(hf: HostFunction) -> this {
+		if (hf == null) return;
+		else if (stacktrace == null) stacktrace = StackSegment.new(null, hf, NO_FRAMES);
+		else if (stacktrace.host != null) stacktrace = StackSegment.new(stacktrace, hf, NO_FRAMES);
+		else stacktrace = StackSegment.new(null, hf, stacktrace.frames);
 	}
 	def render(buf: StringBuilder) -> StringBuilder;
 }
 
-// A trap is a type of abrupt return that has a reason, an optional message, and a stacktrace.
+// Represents Wasm traps that can be thrown (but not currently caught).
 class Trap extends Throwable {
 	def reason: TrapReason;
 	def msg: string;
@@ -82,7 +88,7 @@ class Trap extends Throwable {
 	}
 }
 
-// An exception is a type of abrupt return that has a tag, values, and a stacktrace.
+// Represents Wasm exceptions that can be thrown and caught.
 class Exception extends Throwable {
 	def tag: Tag;
 	def vals: Array<Value>;
@@ -99,7 +105,7 @@ class Exception extends Throwable {
 	}
 }
 
-// An error is an internal error.
+// Represents an internal error, separate from a trap, that cannot be caught.
 class InternalError extends Throwable {
 	def msg: string;
 
@@ -114,3 +120,5 @@ class InternalError extends Throwable {
 // and a next segment.
 class StackSegment(prev: StackSegment, var host: HostFunction, frames: Array<(WasmFunction, int)>) {
 }
+
+def NO_FRAMES = Array<(WasmFunction, int)>.new(0);

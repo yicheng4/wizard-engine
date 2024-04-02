@@ -1,18 +1,11 @@
 (module
-  (tag $e0)
-  (func $throw-if (export "throw-if") (param i32) (result i32)
-    (local.get 0)
-    (i32.const 0) (if (i32.ne) (then
-      (throw $e0)
-      (try
-        (do)
-        (catch $e0 (unreachable))
-      )
-    ))
-    (i32.const 0)
+  (tag $e-i32 (param i32))
+
+  (func (export "test-throw-catch") (param i32) (result i32)
+    (try_table (catch $e-i32 0) (local.get 0) (throw $e-i32))
+    (i32.const 99)
   )
 )
 
-(assert_return (invoke "throw-if" (i32.const 0)) (i32.const 0))
-(assert_exception (invoke "throw-if" (i32.const 15)))
-(assert_exception (invoke "throw-if" (i32.const -19)))
+(assert_return (invoke "test-throw-catch" (i32.const 77)) (i32.const 77))
+(assert_return (invoke "test-throw-catch" (i32.const -9999)) (i32.const -9999))

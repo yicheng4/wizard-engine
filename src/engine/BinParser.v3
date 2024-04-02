@@ -9,6 +9,7 @@ class BinParser(extensions: Extension.set, limits: Limits, filename: string) ext
 	def err = ErrorGen.new(filename);
 	var tiering: ExecutionStrategy;
 	var validate_code = true;
+	var names = true;
 
 	private def cache = Canon.globalCache;
 	private var validator: CodeValidator;
@@ -151,7 +152,7 @@ class BinParser(extensions: Extension.set, limits: Limits, filename: string) ext
 		}
 		var payload = decoder.readN(payload_len);
 		module.custom_sections.put(CustomSection.new(name, payload));
-		if (Strings.equal("name", name)) module.names = NameSection.new(module, payload);
+		if (EngineOptions.names && Strings.equal("name", name)) module.names = NameSection.new(module, payload);
 	}
 	def readLoop(thing_name: string, count: int, read: int -> void) {
 		for (i < count) {
@@ -382,6 +383,10 @@ class BinParser(extensions: Extension.set, limits: Limits, filename: string) ext
 			BpDefTypeCode.Function.code => return readDefFuncType(final != 0, supertypes);
 			BpDefTypeCode.Struct.code => if (extensions.GC) return readDefStructType(final != 0, supertypes);
 			BpDefTypeCode.Array.code => if (extensions.GC) return readDefArrayType(final != 0, supertypes);
+			BpDefTypeCode.Continuation.code => {
+				if (extensions.STACK_SWITCHING)
+					return readDefContType(final != 0, supertypes);
+			}
 		}
 		err.rel(decoder, pt).InvalidTypeDeclCode(code);
 	}
@@ -413,6 +418,7 @@ class BinParser(extensions: Extension.set, limits: Limits, filename: string) ext
 		module.addDecl(decl);
 		decl.recgrp_index = decl.heaptype_index - parser.max_fw_index;
 	}
+	def readDefContType(final: bool, supertypes: Array<HeapType>);
 	def readStorageType() -> StorageType {
 		var pt = decoder.pos;
 		var code = parser.readTypeCode();
@@ -431,14 +437,6 @@ class BinParser(extensions: Extension.set, limits: Limits, filename: string) ext
 		var pt = decoder.pos;
 		var kind = parser.readByte("import kind", BpConstants.renderImportKind);
 		var decl: Decl;
-		var args = Modules.NO_IMPORT_ARGS;
-		if (extensions.TYPE_IMPORTS && kind == BpImportExportKind.Args.code) {
-			var count = parser.readU32_i("import arg count", limits.max_num_exports);
-			if (!err.ok()) return;
-			args = Array<Decl>.new(count);
-			for (i < count) args[i] = readExportWithoutName();
-			kind = parser.readByte("import kind", BpConstants.renderImportKind);
-		}
 		match (kind) {
 			BpImportExportKind.Function.code => {
 				reserveOne(pt, "functions", module.functions, limits.max_num_functions);
@@ -468,27 +466,9 @@ class BinParser(extensions: Extension.set, limits: Limits, filename: string) ext
 				var sig_index = parser.readSigIndex();
 				decl = TagDecl.new(sig_index);
 			}
-			BpImportExportKind.AbsType.code => if (extensions.TYPE_IMPORTS) {
-				var flags = parser.readByte("flags", BpConstants.renderAbsTypeFlags);
-				var has_default = (flags & BpAbsTypeFlag.HasDefault.mask) != 0;
-				var is_externref = (flags & BpAbsTypeFlag.IsExternRef.mask) != 0;
-				var count = parser.readU32_i("constraint count", limits.max_num_type_constraints);
-				var vec = Vector<ValueType>.new();
-				if (count < limits.max_grow_size) vec.grow(count);
-				for (i < count) {
-					var b = parser.readByte("constraint type", BpConstants.renderNone);
-					if (b != 0) err.rel(decoder, pt).InvalidTypeConstraint(b);
-					var t = parser.readValueType();
-					vec.put(t);
-				}
-				decl = AbsTypeDecl.new(has_default, is_externref, vec.extract());
-			}
-			BpImportExportKind.Command.code => if (extensions.TYPE_IMPORTS) {
-				decl = ImportCommandDecl.new();
-			}
 		}
 		if (decl == null) err.rel(decoder, pt).InvalidImportKind(kind);
-		else module.addImport(module_name, field_name, args, decl);
+		else module.addImport(module_name, field_name, decl);
 	}
 	def readFuncDecl(index: int) {
 		var pt = decoder.pos;
@@ -549,7 +529,6 @@ class BinParser(extensions: Extension.set, limits: Limits, filename: string) ext
 			BpImportExportKind.Memory.code => decl = parser.readMemoryRef();
 			BpImportExportKind.Global.code => decl = parser.readGlobalRef();
 			BpImportExportKind.Tag.code => decl = parser.readTagRef();
-			BpImportExportKind.AbsType.code => decl = parser.readAbsTypeRef();
 			_ => err.rel(decoder, pt).InvalidExportKind(kind);
 		}
 		return decl;
@@ -915,7 +894,6 @@ type ValueTypeCode(code: i8, index: i32) #unboxed {
 			BpTypeCode.ARRAYREF.val => return ValueTypes.ARRAYREF;
 			BpTypeCode.EXNREF.val => return ValueTypes.EXNREF;
 			BpTypeCode.NULLREF.val => return ValueTypes.NULLREF;
-			BpTypeCode.ABS.val => return ValueType.Abstract(module.abstypes[index]);
 			_ => return fail();
 		}
 	}
@@ -966,7 +944,6 @@ type ValueTypeCode(code: i8, index: i32) #unboxed {
 			BpTypeCode.ARRAYREF.val,
 			BpTypeCode.EXNREF.val,
 			BpTypeCode.NULLREF.val => return ValueKind.REF;
-			BpTypeCode.ABS.val => return ValueKind.ABS;
 			_ => return fail();
 		}
 	}
@@ -986,7 +963,6 @@ type ValueTypeCode(code: i8, index: i32) #unboxed {
 		}
 	}
 	def toConcreteValueKind(instance: Instance) -> ValueKind {
-		if (code == BpTypeCode.ABS.val) return instance.abskinds[index];
 		return toAbstractValueKind();
 	}
 	def fail<T>() -> T {
@@ -1049,9 +1025,6 @@ type BlockTypeCode(code: int, index: int) #unboxed {
 			}
 			BpTypeCode.NULLREF.val => {
 				return (SigCache.arr_v, [ValueTypes.NULLREF]);
-			}
-			BpTypeCode.ABS.val => {
-				return (SigCache.arr_v, [ValueType.Abstract(module.abstypes[index])]);
 			}
 		}
 		var sig = SigDecl.!(module.heaptypes[code]);

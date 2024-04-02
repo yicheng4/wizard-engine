@@ -1,5 +1,6 @@
 (module
   (tag $e0)
+
   (func $throw-if (export "throw-if") (param i32) (result i32)
     (local.get 0)
     (i32.const 0) (if (i32.ne) (then (throw $e0)))

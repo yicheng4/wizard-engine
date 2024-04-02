@@ -22,7 +22,6 @@ def KIND_F32 = SpcConsts.KIND_F32;
 def KIND_F64 = SpcConsts.KIND_F64;
 def KIND_V128 = SpcConsts.KIND_V128;
 def KIND_REF = SpcConsts.KIND_REF;
-def KIND_ABS = SpcConsts.KIND_ABS;
 
 // Implements the target-specific parts of the single-pass compiler for X86-64.
 class X86_64SinglePassCompiler extends SinglePassCompiler {
@@ -173,41 +172,41 @@ class X86_64SinglePassCompiler extends SinglePassCompiler {
 	def visit_I32_XOR() { visitSimpleOp2_uu_u(V3Eval.I32_XOR, asm.d.xor_r_i, asm.d.xor_r_m, asm.d.xor_r_r); }
 
 	def visit_I64_CLZ() {
-		void(tryFold_q_q(V3Eval.I64_CLZ)
+		void(tryFold_w_w(V3Eval.I64_CLZ)
 			|| do_op1_r_r(ValueKind.I64, mmasm.emit_i64_clz_r_r));
 	}
 	def visit_I64_CTZ() {
-		void(tryFold_q_q(V3Eval.I64_CTZ)
+		void(tryFold_w_w(V3Eval.I64_CTZ)
 			|| do_op1_r_r(ValueKind.I64, mmasm.emit_i64_ctz_r_r));
 	}
 	def visit_I64_POPCNT() {
-		void(tryFold_q_q(V3Eval.I64_POPCNT)
+		void(tryFold_w_w(V3Eval.I64_POPCNT)
 			|| do_op1_r_r(ValueKind.I64, asm.q.popcnt_r_r));
 	}
-	private def visitSimpleOp2_qq_q(fold: (u64, u64) -> u64,
+	private def visitSimpleOp2_ww_w(fold: (u64, u64) -> u64,
 		emit_r_i: (X86_64Gpr, int) -> X86_64Assembler,
 		emit_r_m: (X86_64Gpr, X86_64Addr) -> X86_64Assembler,
 		emit_r_r: (X86_64Gpr, X86_64Gpr) -> X86_64Assembler) {
-		void(tryFold_qq_q(fold)
+		void(tryFold_ww_w(fold)
 			|| do_op2_r_i(ValueKind.I64, emit_r_i)
 			|| do_op2_r_m(ValueKind.I64, emit_r_m)
 			|| do_op2_r_r(ValueKind.I64, emit_r_r));
 	}
-	def visit_I64_ADD() { visitSimpleOp2_qq_q(V3Eval.I64_ADD, asm.q.add_r_i, asm.q.add_r_m, asm.q.add_r_r); }
-	def visit_I64_SUB() { visitSimpleOp2_qq_q(V3Eval.I64_SUB, asm.q.sub_r_i, asm.q.sub_r_m, asm.q.sub_r_r); }
-	def visit_I64_MUL() { visitSimpleOp2_qq_q(V3Eval.I64_MUL, asm.q.imul_r_i, asm.q.imul_r_m, asm.q.imul_r_r); }
+	def visit_I64_ADD() { visitSimpleOp2_ww_w(V3Eval.I64_ADD, asm.q.add_r_i, asm.q.add_r_m, asm.q.add_r_r); }
+	def visit_I64_SUB() { visitSimpleOp2_ww_w(V3Eval.I64_SUB, asm.q.sub_r_i, asm.q.sub_r_m, asm.q.sub_r_r); }
+	def visit_I64_MUL() { visitSimpleOp2_ww_w(V3Eval.I64_MUL, asm.q.imul_r_i, asm.q.imul_r_m, asm.q.imul_r_r); }
 	def visit_I64_DIV_S() { visitIDivRem(X86_64MasmRegs.RAX, mmasm.emit_i64_div_s); }
 	def visit_I64_DIV_U() { visitIDivRem(X86_64MasmRegs.RAX, mmasm.emit_i64_div_u); }
 	def visit_I64_REM_S() { visitIDivRem(X86_64MasmRegs.RDX, mmasm.emit_i64_rem_s); }
 	def visit_I64_REM_U() { visitIDivRem(X86_64MasmRegs.RDX, mmasm.emit_i64_rem_u); }
-	def visit_I64_SHL()   { void(tryFold_qq_q(V3Eval.I64_SHL) || visitShift(ValueKind.I64, asm.q.shl_r_i, asm.q.shl_r_cl)); }
+	def visit_I64_SHL()   { void(tryFold_ww_w(V3Eval.I64_SHL) || visitShift(ValueKind.I64, asm.q.shl_r_i, asm.q.shl_r_cl)); }
 	def visit_I64_SHR_S() { void(tryFold_ll_l(V3Eval.I64_SHR_S) || visitShift(ValueKind.I64, asm.q.sar_r_i, asm.q.sar_r_cl)); }
-	def visit_I64_SHR_U() { void(tryFold_qq_q(V3Eval.I64_SHR_U) || visitShift(ValueKind.I64, asm.q.shr_r_i, asm.q.shr_r_cl)); }
-	def visit_I64_ROTL()  { void(tryFold_qq_q(V3Eval.I64_ROTL) || visitShift(ValueKind.I64, asm.q.rol_r_i, asm.q.rol_r_cl)); }
-	def visit_I64_ROTR()  { void(tryFold_qq_q(V3Eval.I64_ROTR) || visitShift(ValueKind.I64, asm.q.ror_r_i, asm.q.ror_r_cl)); }
-	def visit_I64_AND() { visitSimpleOp2_qq_q(V3Eval.I64_AND, asm.q.and_r_i, asm.q.and_r_m, asm.q.and_r_r); }
-	def visit_I64_OR()  { visitSimpleOp2_qq_q(V3Eval.I64_OR, asm.q.or_r_i, asm.q.or_r_m, asm.q.or_r_r); }
-	def visit_I64_XOR() { visitSimpleOp2_qq_q(V3Eval.I64_XOR, asm.q.xor_r_i, asm.q.xor_r_m, asm.q.xor_r_r); }
+	def visit_I64_SHR_U() { void(tryFold_ww_w(V3Eval.I64_SHR_U) || visitShift(ValueKind.I64, asm.q.shr_r_i, asm.q.shr_r_cl)); }
+	def visit_I64_ROTL()  { void(tryFold_ww_w(V3Eval.I64_ROTL) || visitShift(ValueKind.I64, asm.q.rol_r_i, asm.q.rol_r_cl)); }
+	def visit_I64_ROTR()  { void(tryFold_ww_w(V3Eval.I64_ROTR) || visitShift(ValueKind.I64, asm.q.ror_r_i, asm.q.ror_r_cl)); }
+	def visit_I64_AND() { visitSimpleOp2_ww_w(V3Eval.I64_AND, asm.q.and_r_i, asm.q.and_r_m, asm.q.and_r_r); }
+	def visit_I64_OR()  { visitSimpleOp2_ww_w(V3Eval.I64_OR, asm.q.or_r_i, asm.q.or_r_m, asm.q.or_r_r); }
+	def visit_I64_XOR() { visitSimpleOp2_ww_w(V3Eval.I64_XOR, asm.q.xor_r_i, asm.q.xor_r_m, asm.q.xor_r_r); }
 
 	// XXX: try s_m addressing mode for floating point ops
 	def visit_F32_ABS() {
@@ -445,7 +444,7 @@ class X86_64SinglePassCompiler extends SinglePassCompiler {
 	def visit_V128_AND() {do_op2_x_x(ValueKind.V128, asm.andps_s_s); }
 	def visit_V128_OR() { do_op2_x_x(ValueKind.V128, asm.orps_s_s); }
 	def visit_V128_XOR() { do_op2_x_x(ValueKind.V128, asm.xorps_s_s); }
-	
+
 	def visit_V128_NOT() {
 		var sv = popRegToOverwrite(), r = X(sv.reg);
 		var tmp = allocTmp(ValueKind.V128), t = X(tmp);
@@ -455,7 +454,7 @@ class X86_64SinglePassCompiler extends SinglePassCompiler {
 
 	def visit_V128_ANDNOT() {
 		var b = popRegToOverwrite();
-		var a = popReg();	
+		var a = popReg();
 		asm.andnps_s_s(X(b.reg), X(a.reg));
 		state.push(b.kindFlagsMatching(ValueKind.V128, IN_REG), b.reg, 0);
 	}
@@ -539,7 +538,7 @@ class X86_64SinglePassCompiler extends SinglePassCompiler {
 	def visit_I16X8_EXTEND_LOW_I8X16_S() { do_op1_x_x(ValueKind.V128, asm.pmovsxbw_s_s); }
 	def visit_I16X8_EXTEND_LOW_I8X16_U() { do_op1_x_x(ValueKind.V128, asm.pmovzxbw_s_s); }
 	def visit_I16X8_EXTEND_HIGH_I8X16_S() { do_op1_x(ValueKind.V128, mmasm.emit_i16x8_s_convert_i8x16_high); }
-	def visit_I16X8_EXTEND_HIGH_I8X16_U() { do_op1_x_xtmp(ValueKind.V128, mmasm.emit_i16x8_u_convert_i8x16_high); }	
+	def visit_I16X8_EXTEND_HIGH_I8X16_U() { do_op1_x_xtmp(ValueKind.V128, mmasm.emit_i16x8_u_convert_i8x16_high); }
 
 	def visit_I32X4_SHL() { visit_V128_SHIFT2(5, asm.pslld_s_s); }
 	def visit_I32X4_SHR_S() { visit_V128_SHIFT2(5, asm.psrad_s_s); }
@@ -748,7 +747,7 @@ class X86_64SinglePassCompiler extends SinglePassCompiler {
 		for (i = 15; i >= 0; i--) {
 			def lane = imms[i];
 			def j: int = i >> 3;
-			// Construct a mask for a 
+			// Construct a mask for a
 			mask1[j] <<= 8;
 			mask1[j] |= if (lane < SIMD_128_SIZE, lane, 0x80);
 			// Construct a mask for b
@@ -811,7 +810,7 @@ class X86_64SinglePassCompiler extends SinglePassCompiler {
 		var offset = imm.offset;
 		if (iv.isConst()) {
 			var sum = u64.view(offset) + u32.view(iv.const); // fold offset calculation
-			if (sum > u32.max) return (null, TrapReason.MEM_OUT_OF_BOUNDS); 
+			if (sum > u32.max) return (null, TrapReason.MEM_OUT_OF_BOUNDS);
 			offset = u32.view(sum);
 		} else {
 			index_reg = ensureReg(iv, state.sp);
@@ -856,7 +855,7 @@ class X86_64SinglePassCompiler extends SinglePassCompiler {
 		asm_pins_s_r_i(r, G(val), lane);
 		state.push(sv.kindFlagsMatching(ValueKind.V128, IN_REG), sv.reg, 0);
 	}
-	
+
 	private def visit_V128_REPLACE_LANE<T>(lane: byte, asm_pins_s_r_i: (X86_64Xmmr, X86_64Gpr, byte) -> T) {
 		var b = popReg();
 		var a = popRegToOverwrite();
@@ -1063,7 +1062,6 @@ def ucontext_rip_offset = 168;
 def SIGFPE  = 8;
 def SIGBUS  = 10;
 def SIGSEGV = 11;
-def globalBuf = StringBuilder.new().grow(256);  // avoid allocations when describing frames
 
 // Represents SPC code that uses complete frames (both trapping code and module code).
 // Implements the RiUserCode interface to add generated machine code to the V3 runtime.
@@ -1075,6 +1073,7 @@ class X86_64SpcCode extends RiUserCode {
 
 	// V3-runtime callback: upon fatal errors to describe a frame for a stacktrace.
 	def describeFrame(ip: Pointer, sp: Pointer, out: (Array<byte>, int, int) -> ()) {
+		if (Debug.stack) X86_64Stacks.traceIpAndSp(ip, sp, out);
 		var msg: string;
 		msg = "\tin [";
 		out(msg, 0, msg.length);
@@ -1085,7 +1084,7 @@ class X86_64SpcCode extends RiUserCode {
 		var instance = (sp + X86_64InterpreterFrame.instance.offset).load<Instance>();
 		var wf = (sp + X86_64InterpreterFrame.wasm_func.offset).load<WasmFunction>();
 		// TODO: lazy parse of names section may allocate; must avoid this in OOM situation
-		var buf = globalBuf;
+		var buf = X86_64Runtime.globalFrameDescriptionBuf;
 		wf.decl.render(instance.module.names, buf);
 		buf.ln().out(out);
 		buf.reset();
@@ -1136,7 +1135,12 @@ class X86_64SpcModuleCode extends X86_64SpcCode {
 				var addr = RiOs.getAccessAddress(siginfo, ucontext);
 				var reason: TrapReason;
 				if (RedZones.isInRedZone(addr)) {
-					reason = TrapReason.STACK_OVERFLOW;
+					// Stack overflow is handled specially from other traps.
+					def RETADDR_SIZE = Pointer.SIZE;
+					var handler_ip = X86_64Runtime.curStack.handleOverflow(ip, sp + X86_64InterpreterFrame.size + RETADDR_SIZE);
+					var p_rip = ucontext + ucontext_rip_offset;
+					p_rip.store<Pointer>(handler_ip);
+					return true;
 				} else {
 					reason = TrapReason.MEM_OUT_OF_BOUNDS;
 				}
@@ -1169,6 +1173,7 @@ class X86_64SpcModuleCode extends X86_64SpcCode {
 		if (!mapping.range.contains(ip)) return -1;
 		var offset = ip - mapping.range.start - if(isRetAddr, 1);
 		// XXX: use binary search for looking up source PCs in SPC code
+		if (Trace.compiler) Trace.OUT.put1(" looking for offset=%d", offset).outln();
 		for (i < sourcePcs.length) {
 			var entry = sourcePcs[i];
 			if (Trace.compiler) Trace.OUT.put2("  (offset=%d, pc=%d)", entry.0, entry.1).outln();
@@ -1218,10 +1223,6 @@ class X86_64SpcTrapsStub extends X86_64SpcCode {
 
 	new() super("spc-trap-stubs", Pointer.NULL, Pointer.NULL) { }
 
-	// Get the program counter in the frame during trapping.
-	def getPcFromFrame(ip: Pointer, sp: Pointer) -> int {
-		return (sp + X86_64InterpreterFrame.curpc.offset).load<int>();
-	}
 	// Get the instruction pointer for the stub that will call the runtime for the given reason.
 	def getIpForReason(reason: TrapReason) -> Pointer {
 		return start + reason.tag * TRAP_HANDLER_SIZE;
@@ -1238,6 +1239,7 @@ class X86_64SpcCompileStub extends RiUserCode {
 
 	// Called from V3 runtime upon fatal errors to describe a frame for a stacktrace.
 	def describeFrame(ip: Pointer, sp: Pointer, out: (Array<byte>, int, int) -> ()) {
+		if (Debug.stack) X86_64Stacks.traceIpAndSp(ip, sp, out);
 		var msg = "\tin [spc-";
 		out(msg, 0, msg.length);
 		out(stubName, 0, stubName.length);
@@ -1245,7 +1247,7 @@ class X86_64SpcCompileStub extends RiUserCode {
 		out(msg, 0, msg.length);
 		var wf = (sp + 0).load<WasmFunction>();
 		// TODO: lazy parse of names section may allocate; must avoid this in OOM situation
-		var buf = globalBuf;
+		var buf = X86_64Runtime.globalFrameDescriptionBuf;
 		wf.decl.render(wf.instance.module.names, buf);
 		buf.ln().out(out);
 		buf.reset();

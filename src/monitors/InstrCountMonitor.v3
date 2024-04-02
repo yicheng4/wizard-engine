@@ -1,0 +1,112 @@
+// Copyright 2024 Wizard Authors. All rights reserved.
+// See LICENSE for details of Apache 2.0 license.
+
+def E_ = MonitorRegistry.register(
+	"icount", "Tallies instruction counts per function.",
+	InstrCountMonitor.new());
+
+def countEveryInstr = false; // if true, use a probe on every single instruction
+
+class InstrCountMonitor extends Monitor {
+	def entries = Vector<(FuncDecl, int, CountProbe)>.new();
+
+	def onParse(module: Module) {
+		var ins = InstrCountInstrumenter.new(module);
+		for (i < module.functions.length) {
+			var func = module.functions[i];
+			if (func.imp != null) continue;
+			ins.run(func);
+			entries.put(func, ins.instrs, ins.probe);
+		}
+	}
+	def onFinish(i: Instance) {
+		output(entries, i.module.names);
+	}
+}
+
+def compareEntries(a: (FuncDecl, int, CountProbe), b: (FuncDecl, int, CountProbe)) -> bool {
+	return a.2.count > b.2.count;
+}
+
+class InstrCountInstrumenter(module: Module) extends BytecodeVisitor {
+	def bi = BytecodeIterator.new();
+	var func: FuncDecl;
+	var probe: CountProbe;
+	var last_pc: int;
+	var count: u32;
+	var instrs: int;
+
+	def run(f: FuncDecl) {
+		instrs = 0;
+		func = f;
+		bi.reset(func);
+		probe = CountProbe.new();
+		while (bi.more()) {
+			bi.dispatch(this);
+			last_pc = bi.pc;
+			bi.next();
+			instrs++;
+		}
+	}
+
+	def visitControl(op: Opcode) {
+		if (countEveryInstr) return visitOp(op);
+		if (op == Opcode.LOOP || op == Opcode.END) { // target of a label
+			if (count > 0) Instrumentation.insertLocalProbe(module, func.func_index, last_pc, CountMoreProbe.new(probe, count));
+			Instrumentation.insertLocalProbe(module, func.func_index, bi.pc, probe);
+		} else {
+			count++;
+			Instrumentation.insertLocalProbe(module, func.func_index, bi.pc, if(count > 1, CountMoreProbe.new(probe, count), probe));
+		}
+		count = 0;
+	}
+
+	def visitOp(op: Opcode) {
+		if (countEveryInstr) Instrumentation.insertLocalProbe(module, func.func_index, bi.pc, probe);
+		else count++;
+	}
+}
+
+def table = initTable();
+def initTable() -> TraceTable {
+	var t = TraceTable.new(["Function", "static", "dynamic"]);
+	t.cells[0].set(24, Justification.LEFT, null);
+	t.cells[1].set(7, Justification.RIGHT, null);
+	t.cells[2].set(12, Justification.RIGHT, null);
+	return t;
+}
+
+def output(entries: Vector<(FuncDecl, int, CountProbe)>, names: NameSection) {
+	var out = Trace.OUT, C = table.cells;
+	C[1].color = Palette.COUNT;
+	C[2].color = Palette.COUNT;
+	if (MonitorOptions.csv) {
+		table.putCsvHeader(out);
+	} else {
+		var maxlen = int.!(C[0].width);
+		for (i < entries.length) { // compute maximum function name length for formatting
+			var e = entries[i], func = e.0, count = e.2.count;
+			if (count == 0) continue;
+			out.reset();
+			func.render(names, out);
+			if (out.length > maxlen) maxlen = out.length;
+		}
+		out.reset();
+		C[0].width = if (maxlen > byte.max, byte.max, byte.view(maxlen));
+		table.putTableHeader(out);
+	}
+	out.flush();
+
+	var array = entries.copy();
+	var sorted = Arrays.sort(array, 0, array.length, compareEntries);
+	for (e in sorted) {
+		var func = e.0, instrs = e.1, count = e.2.count;
+		C[0].color = if(count == 0, Palette.UNREACHABLE, Palette.COVERED);
+		func.render(names, C[0]);
+		C[1].putd(instrs);
+		C[2].putd(count);
+		if (MonitorOptions.csv) table.putCsvRow(out);
+		else table.putTableRow(out);
+		out.flush();
+	}
+}

@@ -25,10 +25,7 @@ enum BpImportExportKind(code: byte) {
 	Memory(2),
 	Global(3),
 	Tag(4),
-	HeapType(5),
-	AbsType(6),
-	Command(7),
-	Args(8)
+	HeapType(5)
 }
 // Type constructor codes.
 enum BpTypeCode(code: byte, val: i7) {
@@ -52,7 +49,6 @@ enum BpTypeCode(code: byte, val: i7) {
 	EXNREF		(0x69, -23), //
 	REF		(0x64, -28), //
 	REF_NULL	(0x63, -29), //
-	ABS		(0x5A, -38), //
 	EmptyBlock	(0x40, -64) // XXX: move?
 }
 // Heap type codes.
@@ -83,16 +79,12 @@ enum BpTableFlag(mask: byte) {
 enum BpGlobalFlag(mask: byte) {
 	Mutable(0x01)
 }
-// Abstract type flag masks.
-enum BpAbsTypeFlag(mask: byte) {
-	HasDefault(0x01),
-	IsExternRef(0x02)
-}
 // Heap type declaration codes.
 enum BpDefTypeCode(code: byte, val: i7) {
 	Function	(0x60, -32),
 	Struct		(0x5F, -33),
 	Array		(0x5E, -34),
+	Continuation	(0x5D, -35),
 	SUB		(0x50, -48),
 	SUB_FINAL	(0x4F, -49),
 	REC		(0x4E, -50)
@@ -128,8 +120,7 @@ component BpConstants {
 	def typeCodeHasIndex(code: int) -> bool {
 		match (code) {
 			BpTypeCode.REF.val,
-			BpTypeCode.REF_NULL.val,
-			BpTypeCode.ABS.val => return true;
+			BpTypeCode.REF_NULL.val => return true;
 			_ => return false;
 		}
 	}
@@ -161,9 +152,6 @@ component BpConstants {
 			BpImportExportKind.Global.code => s = "global";
 			BpImportExportKind.Tag.code => s = "tag";
 			BpImportExportKind.HeapType.code => s = "type";
-			BpImportExportKind.AbsType.code => s = "abstract type";
-			BpImportExportKind.Command.code => s = "command";
-			BpImportExportKind.Args.code => s = "args";
 		}
 		return buf.puts(s);
 	}
@@ -190,7 +178,6 @@ component BpConstants {
 			BpTypeCode.NULLREF.val => str = "ref null none";
 			BpTypeCode.NULLEXTERNREF.val => str = "ref null noextern";
 			BpTypeCode.NULLFUNCREF.val => str = "ref null nofunc";
-			BpTypeCode.ABS.val => str = "abstract type";
 		}
 		if (str == null) buf.put1("<unknown type code: %d>", val);
 		else buf.puts(str);
@@ -221,11 +208,6 @@ component BpConstants {
 	def renderMemoryFlags(buf: StringBuilder, b: byte) -> StringBuilder {
 		if ((b & BpMemoryFlag.HasMax.mask) != 0) buf.puts("has_max");
 		if ((b & BpMemoryFlag.Shared.mask) != 0) buf.puts(" shared");
-		return buf;
-	}
-	def renderAbsTypeFlags(buf: StringBuilder, b: byte) -> StringBuilder {
-		if ((b & BpAbsTypeFlag.HasDefault.mask) != 0) buf.puts("has_default");
-		if ((b & BpAbsTypeFlag.IsExternRef.mask) != 0) buf.puts(" is_externref");
 		return buf;
 	}
 	def renderAttribute(buf: StringBuilder, b: byte) -> StringBuilder {

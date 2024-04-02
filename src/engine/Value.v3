@@ -20,7 +20,6 @@ enum ValueKind(code: byte) {
 	F64(BpTypeCode.F64.code),
 	V128(BpTypeCode.V128.code),
 	REF(BpTypeCode.REF.code),
-	ABS(BpTypeCode.ABS.code)
 }
 
 // Superclass of all objects referred to by Value.Ref, including external refs.
@@ -120,7 +119,6 @@ component Values {
 			F32 => v = F32_0;
 			F64 => v = F64_0;
 			V128 => v = V128_0;
-			Abstract, // TODO: default value for abstract type
 			Host,
 			Ref => v = REF_NULL;
 		}
@@ -138,8 +136,7 @@ component Values {
 	def v_w_8(v: Value) -> u8	{ return u8.view(Value.I64.!(v).val); }
 	def v_w_16(v: Value) -> u16	{ return u16.view(Value.I64.!(v).val); }
 	def v_w_32(v: Value) -> u32	{ return u32.view(Value.I64.!(v).val); }
-	def v_w_64(v: Value) -> u64	{ return u64.view(Value.I64.!(v).val); }
-	def v_v128(v: Value) -> (u64, u64) {
+	def v_s(v: Value) -> (u64, u64) {
 		var b = Value.V128.!(v);
 		return (b.low, b.high);
 	}
@@ -149,6 +146,7 @@ component Values {
 	def u_v(v: u32) -> Value { return Value.I32(v); }
 	def l_v(v: i64) -> Value { return Value.I64(u64.view(v)); }
 	def w_v(v: u64) -> Value { return Value.I64(v); }
+	def s_v(x: u64, y: u64) -> Value { return Value.V128(x, y); }
 
 	def f32(sign: int, exp: int, mantissa: u32) -> Value.F32 {
 		var bits = if(sign != 0, 0x80000000u);

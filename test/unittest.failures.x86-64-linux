@@ -1,4 +1,5 @@
 jit:invalid
-spc:aot:dyn_probe_insert_osr
-spc:lazy:dyn_probe_insert_osr
+lazy:invalid
 probe:insert_g1
+jit:dyn_probe_insert_osr
+lazy:dyn_probe_insert_osr
